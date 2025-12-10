@@ -1442,9 +1442,765 @@
             return 0;
         }
 
+        function calculateWeeklySales(week, plan) {
+            let totalNetSales = 0;
+            let retailerCost = 0;
+            const holidayMult = valuemartData.holidayMultipliers[week] || 1.0;
+            
+            if (!plan || Object.keys(plan).length === 0 || !plan.winner) {
+                Object.keys(valuemartData.baselines).forEach(brand => {
+                    const baseline = valuemartData.baselines[brand];
+                    totalNetSales += baseline.retail * holidayMult;
+                });
+                return { netSales: totalNetSales, retailerCost: retailerCost };
+            }
+            
+            Object.keys(valuemartData.baselines).forEach(brand => {
+                const baseline = valuemartData.baselines[brand];
+                const productGroups = valuemartData.productGroups[brand];
+                
+                if (brand === 'pl' || brand === 'dps') {
+                    let brandNetSales = 0;
+                    let hasSpecialInitiative = false;
+                    
+                    const groupKey = brand === 'dps' ? 'DPS Brands' : 'Private Label';
+                    const brandGroupKey = `${brand}-${groupKey}`;
+                    
+                    if (plan.loyalty_funding && (plan.loyalty_funding[groupKey] || plan.loyalty_funding[brandGroupKey])) {
+                        hasSpecialInitiative = true;
+                    }
+                    if (!hasSpecialInitiative && plan.digital_funding && (plan.digital_funding[groupKey] || plan.digital_funding[brandGroupKey])) {
+                        hasSpecialInitiative = true;
+                    }
+                    
+                    if (brand === plan.winner && plan.promo_type) {
+                        const displayMult = valuemartData.displayMultipliers[plan.display_type] || 1.0;
+                        const lift = valuemartData.promotionalLifts.tier1a[plan.promo_type];
+                        const grossSales = baseline.retail * lift * displayMult * holidayMult;
+                        
+                        if (plan.promo_type === 'bogo') {
+                            brandNetSales = grossSales * 0.50;
+                        } else if (plan.promo_type === 'b2g1') {
+                            brandNetSales = grossSales * 0.6667;
+                        } else if (plan.promo_type === '25off') {
+                            brandNetSales = grossSales * 0.75;
+                        }
+                        
+                        if (brand === 'pl') {
+                            const plCostRate = plan.promo_type === 'bogo' ? 0.50 : 
+                                             plan.promo_type === 'b2g1' ? 0.3333 : 0.25;
+                            retailerCost += grossSales * plCostRate;
+                        } else {
+                            const retailerShare = valuemartData.costSharing[plan.promo_type].retailer;
+                            retailerCost += grossSales * retailerShare;
+                        }
+                    } else if (brand === plan.tier2_allowed && plan.tier2_response) {
+                        const baseLift = valuemartData.promotionalLifts.tier2[plan.tier2_response];
+                        const tier2Discount = plan.tier2_response === 'high' ? 0.20 : 0.15;
+                        
+                        if (hasSpecialInitiative) {
+                            const baseGrossVolume = baseline.retail * baseLift * holidayMult;
+                            const incrementalGrossVolume = baseline.retail * (baseLift * 1.3 - baseLift) * holidayMult;
+                            const baseNetSales = baseGrossVolume * (1 - tier2Discount);
+                            const incrementalNetSales = incrementalGrossVolume * (1 - 0.20);
+                            brandNetSales = baseNetSales + incrementalNetSales;
+                        } else {
+                            const grossSales = baseline.retail * baseLift * holidayMult;
+                            brandNetSales = grossSales * (1 - tier2Discount);
+                        }
+                        
+                        if (brand === 'pl') {
+                            const baseGrossSales = baseline.retail * baseLift * holidayMult;
+                            const plDiscountRate = plan.tier2_response === 'high' ? 0.20 : 0.15;
+                            const plTier2Cost = baseGrossSales * plDiscountRate;
+                            retailerCost += plTier2Cost;
+                        }
+                    } else if (plan.tier3_investments && (plan.tier3_investments[groupKey] || plan.tier3_investments[brandGroupKey])) {
+                        const investment = plan.tier3_investments[groupKey] || plan.tier3_investments[brandGroupKey];
+                        const baseLift = valuemartData.promotionalLifts.tier3[investment];
+                        const tier3Discount = investment === 'high' ? 0.10 : 0.05;
+                        
+                        if (hasSpecialInitiative) {
+                            const baseGrossVolume = baseline.retail * baseLift * holidayMult;
+                            const incrementalGrossVolume = baseline.retail * (baseLift * 1.9 - baseLift) * holidayMult;
+                            const baseNetSales = baseGrossVolume * (1 - tier3Discount);
+                            const incrementalNetSales = incrementalGrossVolume * (1 - 0.20);
+                            brandNetSales = baseNetSales + incrementalNetSales;
+                        } else {
+                            const grossSales = baseline.retail * baseLift * holidayMult;
+                            brandNetSales = grossSales * (1 - tier3Discount);
+                        }
+                        
+                        if (brand === 'pl') {
+                            const grossSales = baseline.retail * baseLift * holidayMult;
+                            retailerCost += grossSales * tier3Discount;
+                        }
+                    } else if (hasSpecialInitiative) {
+                        const lift = 2.5;
+                        const grossSales = baseline.retail * lift * holidayMult;
+                        brandNetSales = grossSales * 0.80;
+                    } else {
+                        brandNetSales = baseline.retail * holidayMult;
+                    }
+                    
+                    totalNetSales += brandNetSales;
+                    
+                } else if (brand === 'coca-cola' || brand === 'pepsi') {
+                    Object.keys(productGroups).forEach(group => {
+                        const groupData = productGroups[group];
+                        let groupNetSales = 0;
+                        let hasSpecialInitiative = false;
+                        
+                        const brandSpecificKey = `${brand}-${group}`;
+                        
+                        if (plan.loyalty_funding) {
+                            if (plan.loyalty_funding[group]) {
+                                hasSpecialInitiative = true;
+                            } else if (plan.loyalty_funding[brandSpecificKey]) {
+                                hasSpecialInitiative = true;
+                            }
+                        }
+                        
+                        if (!hasSpecialInitiative && plan.digital_funding) {
+                            if (plan.digital_funding[group]) {
+                                hasSpecialInitiative = true;
+                            } else if (plan.digital_funding[brandSpecificKey]) {
+                                hasSpecialInitiative = true;
+                            }
+                        }
+                        
+                        if (brand === plan.winner && plan.promo_type && plan.tier1a?.includes(group)) {
+                            const displayMult = valuemartData.displayMultipliers[plan.display_type] || 1.0;
+                            const lift = valuemartData.promotionalLifts.tier1a[plan.promo_type];
+                            const grossSales = groupData.retail * lift * displayMult * holidayMult;
+                            
+                            if (plan.promo_type === 'bogo') {
+                                groupNetSales = grossSales * 0.50;
+                            } else if (plan.promo_type === 'b2g1') {
+                                groupNetSales = grossSales * 0.6667;
+                            } else if (plan.promo_type === '25off') {
+                                groupNetSales = grossSales * 0.75;
+                            }
+                            
+                            const retailerShare = valuemartData.costSharing[plan.promo_type].retailer;
+                            retailerCost += grossSales * retailerShare;
+                            
+                        } else if (brand === plan.winner && plan.promo_type && plan.tier1b?.includes(group)) {
+                            const displayMult = valuemartData.displayMultipliers[plan.display_type] || 1.0;
+                            const lift = valuemartData.promotionalLifts.tier1b[plan.promo_type];
+                            const grossSales = groupData.retail * lift * displayMult * holidayMult;
+                            
+                            if (plan.promo_type === 'bogo') {
+                                groupNetSales = grossSales * 0.50;
+                            } else if (plan.promo_type === 'b2g1') {
+                                groupNetSales = grossSales * 0.6667;
+                            } else if (plan.promo_type === '25off') {
+                                groupNetSales = grossSales * 0.75;
+                            }
+                            
+                            const retailerShare = valuemartData.costSharing[plan.promo_type].retailer;
+                            retailerCost += grossSales * retailerShare;
+                            
+                        } else if (brand === plan.tier2_allowed && plan.tier2_groups?.includes(group)) {
+                            const baseLift = valuemartData.promotionalLifts.tier2[plan.tier2_response];
+                            const tier2Discount = plan.tier2_response === 'high' ? 0.20 : 0.15;
+                            
+                            if (hasSpecialInitiative) {
+                                const baseGrossVolume = groupData.retail * baseLift * holidayMult;
+                                const incrementalGrossVolume = groupData.retail * (baseLift * 1.3 - baseLift) * holidayMult;
+                                const baseNetSales = baseGrossVolume * (1 - tier2Discount);
+                                const incrementalNetSales = incrementalGrossVolume * (1 - 0.20);
+                                groupNetSales = baseNetSales + incrementalNetSales;
+                            } else {
+                                const grossSales = groupData.retail * baseLift * holidayMult;
+                                groupNetSales = grossSales * (1 - tier2Discount);
+                            }
+                            
+                        } else if (plan.tier3_investments && plan.tier3_investments[brand + '-' + group]) {
+                            const investment = plan.tier3_investments[brand + '-' + group];
+                            const baseLift = valuemartData.promotionalLifts.tier3[investment];
+                            const tier3Discount = investment === 'high' ? 0.10 : 0.05;
+                            
+                            if (hasSpecialInitiative) {
+                                const baseGrossVolume = groupData.retail * baseLift * holidayMult;
+                                const incrementalGrossVolume = groupData.retail * (baseLift * 1.9 - baseLift) * holidayMult;
+                                const baseNetSales = baseGrossVolume * (1 - tier3Discount);
+                                const incrementalNetSales = incrementalGrossVolume * (1 - 0.20);
+                                groupNetSales = baseNetSales + incrementalNetSales;
+                            } else {
+                                const grossSales = groupData.retail * baseLift * holidayMult;
+                                groupNetSales = grossSales * (1 - tier3Discount);
+                            }
+                            
+                        } else if (hasSpecialInitiative) {
+                            const lift = 2.5;
+                            const grossSales = groupData.retail * lift * holidayMult;
+                            groupNetSales = grossSales * 0.80;
+                        } else {
+                            groupNetSales = groupData.retail * holidayMult;
+                        }
+                        
+                        totalNetSales += groupNetSales;
+                    });
+                }
+            });
+            
+            return { netSales: totalNetSales, retailerCost: retailerCost };
+        }
+
         function updateDashboard() {
-            // Simplified dashboard update - full calculation logic maintained from original
-            generateWeekGrid();
+            let totalRetailerCost = 0;
+            let totalManufacturerFunding = 0;
+            let totalSales = 0;
+            let weekCounts = {
+                'coca-cola': { tier1: 0, tier2: 0 },
+                'pepsi': { tier1: 0, tier2: 0 },
+                'dps': { tier1: 0, tier2: 0 },
+                'pl': { tier1: 0, tier2: 0 }
+            };
+            let promoWeekCount = 0;
+            specialInitiativeSpend = { digital: 0, loyalty: 0 };
+            
+            let totalBaselineSales = 0;
+            
+            for (let week = 1; week <= 26; week++) {
+                const weekKey = `Week ${week}`;
+                const plan = weeklyPlans[weekKey] || {};
+                const holidayMult = valuemartData.holidayMultipliers[weekKey] || 1.0;
+                
+                let weekBaselineSales = 0;
+                Object.keys(valuemartData.baselines).forEach(brand => {
+                    const baseline = valuemartData.baselines[brand];
+                    weekBaselineSales += baseline.retail * holidayMult;
+                });
+                totalBaselineSales += weekBaselineSales;
+                
+                if (plan.winner) {
+                    weekCounts[plan.winner].tier1++;
+                    promoWeekCount++;
+                    
+                    if (plan.promo_type) {
+                        totalManufacturerFunding += calculateManufacturerFunding(weekKey, plan);
+                    }
+                }
+                
+                if (plan.tier2_allowed && plan.tier2_response) {
+                    if (weekCounts[plan.tier2_allowed]) {
+                        weekCounts[plan.tier2_allowed].tier2++;
+                    }
+                    
+                    if (plan.tier2_allowed === 'coca-cola' || plan.tier2_allowed === 'pepsi') {
+                        if (plan.tier2_groups && plan.tier2_groups.length > 0) {
+                            const lift = valuemartData.promotionalLifts.tier2[plan.tier2_response];
+                            const tier2Discount = plan.tier2_response === 'high' ? 0.20 : 0.15;
+                            const productGroups = valuemartData.productGroups[plan.tier2_allowed];
+                            
+                            plan.tier2_groups.forEach(group => {
+                                if (productGroups[group]) {
+                                    const groupRetail = productGroups[group].retail;
+                                    const promotionalSales = groupRetail * lift * holidayMult;
+                                    const tier2MfrFunding = Math.round(promotionalSales * tier2Discount);
+                                    totalManufacturerFunding += tier2MfrFunding;
+                                }
+                            });
+                        }
+                    } else if (plan.tier2_allowed === 'dps') {
+                        const baseline = valuemartData.baselines['dps'];
+                        const lift = valuemartData.promotionalLifts.tier2[plan.tier2_response];
+                        const promotionalSales = baseline.retail * lift * holidayMult;
+                        const dpsDiscountRate = plan.tier2_response === 'high' ? 0.20 : 0.15;
+                        totalManufacturerFunding += Math.round(promotionalSales * dpsDiscountRate);
+                    }
+                }
+                
+                if (plan.tier3_investments) {
+                    Object.keys(plan.tier3_investments).forEach(investmentKey => {
+                        const investment = plan.tier3_investments[investmentKey];
+                        
+                        let brand = null;
+                        let group = null;
+                        
+                        ['coca-cola', 'pepsi', 'dps', 'pl'].forEach(brandName => {
+                            if (investmentKey.startsWith(brandName + '-')) {
+                                const potentialGroup = investmentKey.substring(brandName.length + 1);
+                                if (valuemartData.productGroups[brandName] && valuemartData.productGroups[brandName][potentialGroup]) {
+                                    brand = brandName;
+                                    group = potentialGroup;
+                                }
+                            }
+                        });
+                        
+                        if (brand && group && brand !== 'pl') {
+                            const groupData = valuemartData.productGroups[brand][group];
+                            const lift = valuemartData.promotionalLifts.tier3[investment];
+                            const grossSales = groupData.retail * lift * holidayMult;
+                            const tier3Rate = investment === 'high' ? 0.10 : 0.05;
+                            const tier3Cost = Math.round(grossSales * tier3Rate);
+                            totalManufacturerFunding += tier3Cost;
+                        }
+                    });
+                }
+                
+                ['loyalty_funding', 'digital_funding'].forEach(fundingType => {
+                    if (plan[fundingType]) {
+                        Object.keys(plan[fundingType]).forEach(group => {
+                            const funding = plan[fundingType][group];
+                            if (funding === 'manufacturer' || funding === 'split') {
+                                let groupRetail = 0;
+                                let brandForGroup = null;
+                                let originalKey = group;
+                                
+                                const contextKey = fundingType.replace('_funding', '_brand_context');
+                                if (plan[contextKey] && plan[contextKey][group]) {
+                                    brandForGroup = plan[contextKey][group].brand;
+                                    originalKey = plan[contextKey][group].originalKey;
+                                } else {
+                                    Object.keys(valuemartData.productGroups).forEach(brand => {
+                                        if (valuemartData.productGroups[brand][group]) {
+                                            brandForGroup = brand;
+                                            originalKey = group;
+                                        }
+                                    });
+                                    if (group.includes('coca-cola-') || group.includes('pepsi-')) {
+                                        const parts = group.split('-');
+                                        brandForGroup = parts[0];
+                                        originalKey = parts.slice(1).join('-');
+                                    }
+                                }
+                                
+                                if (brandForGroup && valuemartData.productGroups[brandForGroup] && valuemartData.productGroups[brandForGroup][originalKey]) {
+                                    groupRetail = valuemartData.productGroups[brandForGroup][originalKey].retail;
+                                    
+                                    let costBasis = 0;
+                                    
+                                    if (plan.tier2_groups?.includes(originalKey)) {
+                                        const baseLift = valuemartData.promotionalLifts.tier2[plan.tier2_response];
+                                        const totalLift = baseLift * 1.3;
+                                        const incrementalLift = totalLift - baseLift;
+                                        costBasis = groupRetail * incrementalLift * holidayMult;
+                                    } else if (plan.tier3_investments) {
+                                        const tier3Key = `${brandForGroup}-${originalKey}`;
+                                        if (plan.tier3_investments[tier3Key]) {
+                                            const baseLift = valuemartData.promotionalLifts.tier3[plan.tier3_investments[tier3Key]];
+                                            const totalLift = baseLift * 1.9;
+                                            const incrementalLift = totalLift - baseLift;
+                                            costBasis = groupRetail * incrementalLift * holidayMult;
+                                        } else {
+                                            costBasis = groupRetail * 2.5 * holidayMult;
+                                        }
+                                    } else {
+                                        costBasis = groupRetail * 2.5 * holidayMult;
+                                    }
+                                    
+                                    let mfrCost = 0;
+                                    if (funding === 'manufacturer') {
+                                        mfrCost = Math.round(costBasis * 0.20);
+                                        totalManufacturerFunding += mfrCost;
+                                    } else if (funding === 'split') {
+                                        mfrCost = Math.round(costBasis * 0.10);
+                                        totalManufacturerFunding += mfrCost;
+                                    }
+                                }
+                            }
+                        });
+                    }
+                });
+                
+                if (plan.loyalty_funding) {
+                    Object.keys(plan.loyalty_funding).forEach(group => {
+                        const funding = plan.loyalty_funding[group];
+                        if (funding === 'retailer' || funding === 'split') {
+                            let groupRetail = 0;
+                            let brandForGroup = null;
+                            let originalKey = group;
+                            
+                            if (plan.loyalty_brand_context && plan.loyalty_brand_context[group]) {
+                                brandForGroup = plan.loyalty_brand_context[group].brand;
+                                originalKey = plan.loyalty_brand_context[group].originalKey;
+                            } else {
+                                Object.keys(valuemartData.productGroups).forEach(brand => {
+                                    if (valuemartData.productGroups[brand][group]) {
+                                        brandForGroup = brand;
+                                        originalKey = group;
+                                    }
+                                });
+                            }
+                            
+                            if (brandForGroup && valuemartData.productGroups[brandForGroup][originalKey]) {
+                                groupRetail = valuemartData.productGroups[brandForGroup][originalKey].retail;
+                            }
+                            
+                            if (groupRetail > 0) {
+                                let costBasis = 0;
+                                
+                                if (brandForGroup === 'pl' && plan.tier2_allowed === 'pl' && plan.tier2_response) {
+                                    const baseLift = valuemartData.promotionalLifts.tier2[plan.tier2_response];
+                                    const totalLift = baseLift * 1.3;
+                                    const incrementalLift = totalLift - baseLift;
+                                    costBasis = groupRetail * incrementalLift * holidayMult;
+                                } else if (brandForGroup === 'dps' && plan.tier2_allowed === 'dps' && plan.tier2_response) {
+                                    const baseLift = valuemartData.promotionalLifts.tier2[plan.tier2_response];
+                                    const totalLift = baseLift * 1.3;
+                                    const incrementalLift = totalLift - baseLift;
+                                    costBasis = groupRetail * incrementalLift * holidayMult;
+                                } else if (plan.tier2_groups?.includes(originalKey)) {
+                                    const baseLift = valuemartData.promotionalLifts.tier2[plan.tier2_response];
+                                    const totalLift = baseLift * 1.3;
+                                    const incrementalLift = totalLift - baseLift;
+                                    costBasis = groupRetail * incrementalLift * holidayMult;
+                                } else if (plan.tier3_investments) {
+                                    const tier3Key = `${brandForGroup}-${originalKey}`;
+                                    if (plan.tier3_investments[tier3Key]) {
+                                        const baseLift = valuemartData.promotionalLifts.tier3[plan.tier3_investments[tier3Key]];
+                                        const totalLift = baseLift * 1.9;
+                                        const incrementalLift = totalLift - baseLift;
+                                        costBasis = groupRetail * incrementalLift * holidayMult;
+                                    } else {
+                                        costBasis = groupRetail * 2.5 * holidayMult;
+                                    }
+                                } else {
+                                    costBasis = groupRetail * 2.5 * holidayMult;
+                                }
+                                
+                                let retailerCost = 0;
+                                if (funding === 'retailer') {
+                                    retailerCost = Math.round(costBasis * 0.20);
+                                    specialInitiativeSpend.loyalty += retailerCost;
+                                } else if (funding === 'split') {
+                                    retailerCost = Math.round(costBasis * 0.10);
+                                    specialInitiativeSpend.loyalty += retailerCost;
+                                }
+                            }
+                        }
+                    });
+                }
+                
+                if (plan.digital_funding) {
+                    Object.keys(plan.digital_funding).forEach(group => {
+                        const funding = plan.digital_funding[group];
+                        if (funding === 'retailer' || funding === 'split') {
+                            let groupRetail = 0;
+                            let brandForGroup = null;
+                            let originalKey = group;
+                            
+                            if (plan.digital_brand_context && plan.digital_brand_context[group]) {
+                                brandForGroup = plan.digital_brand_context[group].brand;
+                                originalKey = plan.digital_brand_context[group].originalKey;
+                            } else {
+                                Object.keys(valuemartData.productGroups).forEach(brand => {
+                                    if (valuemartData.productGroups[brand][group]) {
+                                        brandForGroup = brand;
+                                        originalKey = group;
+                                    }
+                                });
+                            }
+                            
+                            if (brandForGroup && valuemartData.productGroups[brandForGroup][originalKey]) {
+                                groupRetail = valuemartData.productGroups[brandForGroup][originalKey].retail;
+                            }
+                            
+                            if (groupRetail > 0) {
+                                let costBasis = 0;
+                                
+                                if (brandForGroup === 'pl' && plan.tier2_allowed === 'pl' && plan.tier2_response) {
+                                    const baseLift = valuemartData.promotionalLifts.tier2[plan.tier2_response];
+                                    const totalLift = baseLift * 1.3;
+                                    const incrementalLift = totalLift - baseLift;
+                                    costBasis = groupRetail * incrementalLift * holidayMult;
+                                } else if (brandForGroup === 'dps' && plan.tier2_allowed === 'dps' && plan.tier2_response) {
+                                    const baseLift = valuemartData.promotionalLifts.tier2[plan.tier2_response];
+                                    const totalLift = baseLift * 1.3;
+                                    const incrementalLift = totalLift - baseLift;
+                                    costBasis = groupRetail * incrementalLift * holidayMult;
+                                } else if (plan.tier2_groups?.includes(originalKey)) {
+                                    const baseLift = valuemartData.promotionalLifts.tier2[plan.tier2_response];
+                                    const totalLift = baseLift * 1.3;
+                                    const incrementalLift = totalLift - baseLift;
+                                    costBasis = groupRetail * incrementalLift * holidayMult;
+                                } else if (plan.tier3_investments) {
+                                    const tier3Key = `${brandForGroup}-${originalKey}`;
+                                    if (plan.tier3_investments[tier3Key]) {
+                                        const baseLift = valuemartData.promotionalLifts.tier3[plan.tier3_investments[tier3Key]];
+                                        const totalLift = baseLift * 1.9;
+                                        const incrementalLift = totalLift - baseLift;
+                                        costBasis = groupRetail * incrementalLift * holidayMult;
+                                    } else {
+                                        costBasis = groupRetail * 2.5 * holidayMult;
+                                    }
+                                } else {
+                                    costBasis = groupRetail * 2.5 * holidayMult;
+                                }
+                                
+                                let retailerCost = 0;
+                                if (funding === 'retailer') {
+                                    retailerCost = Math.round(costBasis * 0.20);
+                                    specialInitiativeSpend.digital += retailerCost;
+                                } else if (funding === 'split') {
+                                    retailerCost = Math.round(costBasis * 0.10);
+                                    specialInitiativeSpend.digital += retailerCost;
+                                }
+                            }
+                        }
+                    });
+                }
+                
+                const result = calculateWeeklySales(weekKey, plan);
+                totalSales += result.netSales;
+                totalRetailerCost += result.retailerCost;
+            }
+            
+            const totalSpecialInitiativeRetailerCost = specialInitiativeSpend.digital + specialInitiativeSpend.loyalty;
+            const finalTotalRetailerCost = totalRetailerCost + totalSpecialInitiativeRetailerCost;
+            
+            document.getElementById('total-retailer-cost').textContent = `${Math.round(finalTotalRetailerCost).toLocaleString()}`;
+            document.getElementById('avg-weekly-cost').textContent = `${Math.round(finalTotalRetailerCost / 26).toLocaleString()}`;
+            
+            document.getElementById('digital-budget').textContent = 
+                `${Math.round(specialInitiativeSpend.digital).toLocaleString()} / $800,000 min`;
+            document.getElementById('loyalty-budget').textContent = 
+                `${Math.round(specialInitiativeSpend.loyalty).toLocaleString()} / $600,000 min`;
+            
+            document.getElementById('total-sales').textContent = `${Math.round(totalSales).toLocaleString()}`;
+            document.getElementById('promo-weeks').textContent = `${promoWeekCount} / 26`;
+            
+            const priorYearSales = 170000000;
+            const growthRate = ((totalSales - priorYearSales) / priorYearSales * 100);
+            document.getElementById('sales-growth').textContent = `${growthRate.toFixed(1)}%`;
+            document.getElementById('obj-growth').textContent = `${growthRate.toFixed(1)}%`;
+            
+            document.getElementById('obj-funding').textContent = `${(totalManufacturerFunding / 1000000).toFixed(1)}M`;
+            document.getElementById('funding-exact').textContent = `Exact: ${totalManufacturerFunding.toLocaleString()}`;
+            
+            updateBrandWeekDisplay('cc-weeks', weekCounts['coca-cola'], 10, 15);
+            updateBrandWeekDisplay('pepsi-weeks', weekCounts['pepsi'], 10, 15);
+            updateBrandWeekDisplay('dps-weeks', weekCounts['dps'], 1, 2, 6);
+            updateBrandWeekDisplay('pl-weeks', weekCounts['pl'], 2, 3, 5, 6);
+            
+            const baseMargins = {
+                'coca-cola': 0.22,
+                'pepsi': 0.20,
+                'dps': 0.2587,
+                'pl': 0.35
+            };
+            
+            let actualNetSales = {
+                'coca-cola': 0,
+                'pepsi': 0,
+                'dps': 0,
+                'pl': 0
+            };
+            
+            for (let week = 1; week <= 26; week++) {
+                const weekKey = `Week ${week}`;
+                const plan = weeklyPlans[weekKey] || {};
+                const holidayMult = valuemartData.holidayMultipliers[weekKey] || 1.0;
+                
+                Object.keys(valuemartData.baselines).forEach(brand => {
+                    const baseline = valuemartData.baselines[brand];
+                    const productGroups = valuemartData.productGroups[brand];
+                    
+                    if (brand === 'pl' || brand === 'dps') {
+                        let brandNetSales = 0;
+                        let hasSpecialInitiative = false;
+                        
+                        const groupKey = brand === 'dps' ? 'DPS Brands' : 'Private Label';
+                        const brandGroupKey = `${brand}-${groupKey}`;
+                        
+                        if (plan.loyalty_funding && (plan.loyalty_funding[groupKey] || plan.loyalty_funding[brandGroupKey])) {
+                            hasSpecialInitiative = true;
+                        }
+                        if (!hasSpecialInitiative && plan.digital_funding && (plan.digital_funding[groupKey] || plan.digital_funding[brandGroupKey])) {
+                            hasSpecialInitiative = true;
+                        }
+                        
+                        if (brand === plan.winner && plan.promo_type) {
+                            const displayMult = valuemartData.displayMultipliers[plan.display_type] || 1.0;
+                            const lift = valuemartData.promotionalLifts.tier1a[plan.promo_type];
+                            const grossSales = baseline.retail * lift * displayMult * holidayMult;
+                            
+                            if (plan.promo_type === 'bogo') {
+                                brandNetSales = grossSales * 0.50;
+                            } else if (plan.promo_type === 'b2g1') {
+                                brandNetSales = grossSales * 0.6667;
+                            } else if (plan.promo_type === '25off') {
+                                brandNetSales = grossSales * 0.75;
+                            }
+                        } else if (brand === plan.tier2_allowed && plan.tier2_response) {
+                            const baseLift = valuemartData.promotionalLifts.tier2[plan.tier2_response];
+                            const tier2Discount = plan.tier2_response === 'high' ? 0.20 : 0.15;
+                            
+                            if (hasSpecialInitiative) {
+                                const baseGrossVolume = baseline.retail * baseLift * holidayMult;
+                                const incrementalGrossVolume = baseline.retail * (baseLift * 1.3 - baseLift) * holidayMult;
+                                const baseNetSales = baseGrossVolume * (1 - tier2Discount);
+                                const incrementalNetSales = incrementalGrossVolume * (1 - 0.20);
+                                brandNetSales = baseNetSales + incrementalNetSales;
+                            } else {
+                                const grossSales = baseline.retail * baseLift * holidayMult;
+                                brandNetSales = grossSales * (1 - tier2Discount);
+                            }
+                        } else if (plan.tier3_investments && (plan.tier3_investments[groupKey] || plan.tier3_investments[brandGroupKey])) {
+                            const investment = plan.tier3_investments[groupKey] || plan.tier3_investments[brandGroupKey];
+                            const baseLift = valuemartData.promotionalLifts.tier3[investment];
+                            const tier3Discount = investment === 'high' ? 0.10 : 0.05;
+                            
+                            if (hasSpecialInitiative) {
+                                const baseGrossVolume = baseline.retail * baseLift * holidayMult;
+                                const incrementalGrossVolume = baseline.retail * (baseLift * 1.9 - baseLift) * holidayMult;
+                                const baseNetSales = baseGrossVolume * (1 - tier3Discount);
+                                const incrementalNetSales = incrementalGrossVolume * (1 - 0.20);
+                                brandNetSales = baseNetSales + incrementalNetSales;
+                            } else {
+                                const grossSales = baseline.retail * baseLift * holidayMult;
+                                brandNetSales = grossSales * (1 - tier3Discount);
+                            }
+                        } else if (hasSpecialInitiative) {
+                            const lift = 2.5;
+                            const grossSales = baseline.retail * lift * holidayMult;
+                            brandNetSales = grossSales * 0.80;
+                        } else {
+                            brandNetSales = baseline.retail * holidayMult;
+                        }
+                        
+                        actualNetSales[brand] += brandNetSales;
+                        
+                    } else if (brand === 'coca-cola' || brand === 'pepsi') {
+                        Object.keys(productGroups).forEach(group => {
+                            const groupData = productGroups[group];
+                            let groupNetSales = 0;
+                            let hasSpecialInitiative = false;
+                            
+                            const brandSpecificKey = `${brand}-${group}`;
+                            if (plan.loyalty_funding && (plan.loyalty_funding[group] || plan.loyalty_funding[brandSpecificKey])) {
+                                hasSpecialInitiative = true;
+                            }
+                            if (!hasSpecialInitiative && plan.digital_funding && (plan.digital_funding[group] || plan.digital_funding[brandSpecificKey])) {
+                                hasSpecialInitiative = true;
+                            }
+                            
+                            if (brand === plan.winner && plan.promo_type && plan.tier1a?.includes(group)) {
+                                const displayMult = valuemartData.displayMultipliers[plan.display_type] || 1.0;
+                                const lift = valuemartData.promotionalLifts.tier1a[plan.promo_type];
+                                const grossSales = groupData.retail * lift * displayMult * holidayMult;
+                                
+                                if (plan.promo_type === 'bogo') {
+                                    groupNetSales = grossSales * 0.50;
+                                } else if (plan.promo_type === 'b2g1') {
+                                    groupNetSales = grossSales * 0.6667;
+                                } else if (plan.promo_type === '25off') {
+                                    groupNetSales = grossSales * 0.75;
+                                }
+                            } else if (brand === plan.winner && plan.promo_type && plan.tier1b?.includes(group)) {
+                                const displayMult = valuemartData.displayMultipliers[plan.display_type] || 1.0;
+                                const lift = valuemartData.promotionalLifts.tier1b[plan.promo_type];
+                                const grossSales = groupData.retail * lift * displayMult * holidayMult;
+                                
+                                if (plan.promo_type === 'bogo') {
+                                    groupNetSales = grossSales * 0.50;
+                                } else if (plan.promo_type === 'b2g1') {
+                                    groupNetSales = grossSales * 0.6667;
+                                } else if (plan.promo_type === '25off') {
+                                    groupNetSales = grossSales * 0.75;
+                                }
+                            } else if (brand === plan.tier2_allowed && plan.tier2_groups?.includes(group)) {
+                                const baseLift = valuemartData.promotionalLifts.tier2[plan.tier2_response];
+                                const tier2Discount = plan.tier2_response === 'high' ? 0.20 : 0.15;
+                                
+                                if (hasSpecialInitiative) {
+                                    const baseGrossVolume = groupData.retail * baseLift * holidayMult;
+                                    const incrementalGrossVolume = groupData.retail * (baseLift * 1.3 - baseLift) * holidayMult;
+                                    const baseNetSales = baseGrossVolume * (1 - tier2Discount);
+                                    const incrementalNetSales = incrementalGrossVolume * (1 - 0.20);
+                                    groupNetSales = baseNetSales + incrementalNetSales;
+                                } else {
+                                    const grossSales = groupData.retail * baseLift * holidayMult;
+                                    groupNetSales = grossSales * (1 - tier2Discount);
+                                }
+                            } else if (plan.tier3_investments && plan.tier3_investments[brand + '-' + group]) {
+                                const investment = plan.tier3_investments[brand + '-' + group];
+                                const baseLift = valuemartData.promotionalLifts.tier3[investment];
+                                const tier3Discount = investment === 'high' ? 0.10 : 0.05;
+                                
+                                if (hasSpecialInitiative) {
+                                    const baseGrossVolume = groupData.retail * baseLift * holidayMult;
+                                    const incrementalGrossVolume = groupData.retail * (baseLift * 1.9 - baseLift) * holidayMult;
+                                    const baseNetSales = baseGrossVolume * (1 - tier3Discount);
+                                    const incrementalNetSales = incrementalGrossVolume * (1 - 0.20);
+                                    groupNetSales = baseNetSales + incrementalNetSales;
+                                } else {
+                                    const grossSales = groupData.retail * baseLift * holidayMult;
+                                    groupNetSales = grossSales * (1 - tier3Discount);
+                                }
+                            } else if (hasSpecialInitiative) {
+                                const lift = 2.5;
+                                const grossSales = groupData.retail * lift * holidayMult;
+                                groupNetSales = grossSales * 0.80;
+                            } else {
+                                groupNetSales = groupData.retail * holidayMult;
+                            }
+                            
+                            actualNetSales[brand] += groupNetSales;
+                        });
+                    }
+                });
+            }
+            
+            const totalActualNetSales = Object.values(actualNetSales).reduce((sum, val) => sum + val, 0);
+            const currentMix = {};
+            Object.keys(actualNetSales).forEach(brand => {
+                currentMix[brand] = totalActualNetSales > 0 ? actualNetSales[brand] / totalActualNetSales : 0;
+            });
+            
+            const currentWeightedMargin = 
+                (currentMix['coca-cola'] * baseMargins['coca-cola']) + 
+                (currentMix['pepsi'] * baseMargins['pepsi']) + 
+                (currentMix['dps'] * baseMargins['dps']) + 
+                (currentMix['pl'] * baseMargins['pl']);
+            
+            const promotionalSalesPercent = totalSales > 0 ? 
+                (totalSales - totalBaselineSales) / totalSales : 0;
+            
+            const priorRetailerShare = 0.12;
+            let currentRetailerShare;
+            
+            if (finalTotalRetailerCost + totalManufacturerFunding > 0) {
+                currentRetailerShare = finalTotalRetailerCost / (finalTotalRetailerCost + totalManufacturerFunding);
+            } else {
+                currentRetailerShare = priorRetailerShare;
+            }
+            
+            const retailerShareChange = currentRetailerShare - priorRetailerShare;
+            const fundingImpact = retailerShareChange * promotionalSalesPercent;
+            const currentMargin = (currentWeightedMargin - fundingImpact) * 100;
+            
+            document.getElementById('category-margin').textContent = `${currentMargin.toFixed(1)}%`;
+            document.getElementById('obj-profit').textContent = `${currentMargin.toFixed(1)}%`;
+        }
+
+        function updateBrandWeekDisplay(elementId, counts, minT1, maxT1, targetT2 = null) {
+            const element = document.getElementById(elementId);
+            element.textContent = `T1: ${counts.tier1} | T2: ${counts.tier2}`;
+            
+            if (elementId === 'dps-weeks') {
+                const statusEl = document.getElementById('dps-status');
+                if (counts.tier1 >= minT1 && counts.tier1 <= maxT1 && counts.tier2 === targetT2) {
+                    statusEl.className = 'week-status success';
+                } else if (counts.tier2 < targetT2) {
+                    statusEl.className = 'week-status warning';
+                } else {
+                    statusEl.className = 'week-status danger';
+                }
+            } else if (elementId === 'pl-weeks') {
+                const statusEl = document.getElementById('pl-status');
+                const totalWeeks = counts.tier1 + counts.tier2;
+                if (totalWeeks >= 7 && totalWeeks <= 9) {
+                    statusEl.className = 'week-status success';
+                } else if (totalWeeks < 7) {
+                    statusEl.className = 'week-status warning';
+                } else {
+                    statusEl.className = 'week-status danger';
+                }
+            }
         }
 
         window.onload = function() {
